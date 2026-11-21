@@ -11,13 +11,17 @@ import type {
   Tracking,
 } from "./types";
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   if (init?.body && !headers.has("content-type")) headers.set("content-type", "application/json");
   const response = await fetch(path, { ...init, headers });
   const data = (await response.json().catch(() => ({}))) as { error?: string };
   if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
   return data as T;
+}
+
+export function swrFetcher<T>(path: string): Promise<T> {
+  return request<T>(path);
 }
 
 export const api = {

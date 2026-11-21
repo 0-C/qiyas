@@ -27,7 +27,7 @@ import {
   toFils,
   trackingToken,
 } from "./domain";
-import { getShopRow, listFields, lockShop, mapField, mapShop, type MeasurementField, type Shop } from "./shop";
+import { getShopRow, listFields, lockShop, mapField, mapShop, type FieldRow, type MeasurementField, type Shop } from "./shop";
 
 interface CustomerRow {
   id: string;
@@ -338,16 +338,38 @@ export async function getShopBundle(): Promise<{ shop: Shop; fields: Measurement
   return { shop: mapShop(shop), fields: fields.map(mapField) };
 }
 
-export async function dashboard() {
-  const shop = await readyShop();
-  const today = kuwaitToday();
-  const rows = await raw<OrderRow>(
-    `${ORDER_SELECT}
-     WHERE o.shop_id = $1 AND o.production_status = 'in_progress'
-     ORDER BY o.expected_due_date, o.code`,
-    [shop.id],
-  );
-  const orders = await hydrate(rows, today, false);
+const ORDER_JSON = `
+jsonb_build_object(
+  'id', o.id,
+  'customer_id', o.customer_id,
+  'customer_name', c.name,
+  'customer_phone', c.phone,
+  'measurement_set_id', o.measurement_set_id,
+  'code', o.code,
+  'piece_count', o.piece_count,
+  'piece_label', o.piece_label,
+  'original_due_date', o.original_due_date::text,
+  'expected_due_date', o.expected_due_date::text,
+  'total_amount', o.total_amount::text,
+  'amount_paid', o.amount_paid::text,
+  'balance', (o.total_amount - o.amount_paid)::text,
+  'delivery_fee_applied', o.delivery_fee_applied,
+  'fabric_notes', o.fabric_notes,
+  'style_notes', o.style_notes,
+  'production_status', o.production_status,
+  'finished_at', o.finished_at,
+  'handover_status', o.handover_status,
+  'tracking_token', o.tracking_token,
+  'notifications_muted', o.notifications_muted,
+  'is_adjustment', o.is_adjustment,
+  'parent_order_id', o.parent_order_id,
+  'parent_code', p.code,
+  'adjustment_note', o.adjustment_note,
+  'created_at', o.created_at
+)
+`;
+
+function groupOrders(orders: Order[]) {
   const groups: Record<"overdue" | "today" | "tomorrow" | "upcoming", Order[]> = {
     overdue: [],
     today: [],
@@ -358,7 +380,43 @@ export async function dashboard() {
     if (order.dueGroup === "past") continue;
     groups[order.dueGroup].push(order);
   }
-  return { shop: mapShop(shop), today, groups };
+  return groups;
+}
+
+export async function dashboard() {
+  await ensureReady();
+  const today = kuwaitToday();
+  const rows = await raw<{
+    id: string;
+    name: string;
+    green_days: number;
+    orange_days: number;
+    delivery_fee: string;
+    notifications_enabled: boolean;
+    next_order_code: number;
+    created_at: Date;
+    orders: OrderRow[] | null;
+  }>(
+    `SELECT s.id, s.name, s.green_days, s.orange_days, s.delivery_fee::text AS delivery_fee,
+            s.notifications_enabled, s.next_order_code, s.created_at,
+            COALESCE((
+              SELECT jsonb_agg(item ORDER BY item->>'expected_due_date', item->>'code')
+              FROM (
+                SELECT ${ORDER_JSON} AS item
+                FROM orders o
+                JOIN customers c ON c.id = o.customer_id
+                LEFT JOIN orders p ON p.id = o.parent_order_id
+                WHERE o.shop_id = s.id AND o.production_status = 'in_progress'
+              ) built
+            ), '[]'::jsonb) AS orders
+     FROM shops s
+     ORDER BY s.created_at
+     LIMIT 1`,
+  );
+  const shop = rows[0];
+  if (!shop) throw new HttpError(500, "Shop was not created.");
+  const orders = await hydrate(shop.orders ?? [], today, false);
+  return { shop: mapShop(shop), today, groups: groupOrders(orders) };
 }
 
 export async function search(query: string) {
@@ -467,24 +525,103 @@ export async function updateCustomer(id: string, input: Record<string, unknown>)
 export async function getCustomer(id: string) {
   const shop = await readyShop();
   const today = kuwaitToday();
-  const customers = await raw<CustomerRow>("SELECT * FROM customers WHERE id = $1 AND shop_id = $2", [id, shop.id]);
-  if (!customers[0]) throw new HttpError(404, "Customer not found.");
-  const fields = await listFields(shop.id);
-  const sets = await raw<MeasurementRow>(
-    "SELECT * FROM measurement_sets WHERE customer_id = $1 ORDER BY taken_at DESC",
-    [id],
-  );
-  const orderRows = await raw<OrderRow>(
-    `${ORDER_SELECT} WHERE o.customer_id = $1 AND o.shop_id = $2 ORDER BY o.created_at DESC`,
+  const rows = await raw<{
+    customer: CustomerRow | null;
+    fields: FieldRow[] | null;
+    measurements: MeasurementRow[] | null;
+    orders: Array<OrderRow & { payments: PaymentRow[] | null; messages: MessageRow[] | null }> | null;
+  }>(
+    `SELECT
+       (SELECT to_jsonb(c) FROM customers c WHERE c.id = $1 AND c.shop_id = $2) AS customer,
+       (SELECT COALESCE(jsonb_agg(to_jsonb(f) ORDER BY f.sort_order, f.label), '[]'::jsonb)
+          FROM measurement_fields f WHERE f.shop_id = $2) AS fields,
+       (SELECT COALESCE(jsonb_agg(to_jsonb(m) ORDER BY m.taken_at DESC), '[]'::jsonb)
+          FROM measurement_sets m WHERE m.customer_id = $1 AND m.shop_id = $2) AS measurements,
+       (SELECT COALESCE(jsonb_agg(item ORDER BY item->>'created_at' DESC), '[]'::jsonb)
+          FROM (
+            SELECT jsonb_build_object(
+              'id', o.id,
+              'customer_id', o.customer_id,
+              'customer_name', c.name,
+              'customer_phone', c.phone,
+              'measurement_set_id', o.measurement_set_id,
+              'code', o.code,
+              'piece_count', o.piece_count,
+              'piece_label', o.piece_label,
+              'original_due_date', o.original_due_date::text,
+              'expected_due_date', o.expected_due_date::text,
+              'total_amount', o.total_amount::text,
+              'amount_paid', o.amount_paid::text,
+              'balance', (o.total_amount - o.amount_paid)::text,
+              'delivery_fee_applied', o.delivery_fee_applied,
+              'fabric_notes', o.fabric_notes,
+              'style_notes', o.style_notes,
+              'production_status', o.production_status,
+              'finished_at', o.finished_at,
+              'handover_status', o.handover_status,
+              'tracking_token', o.tracking_token,
+              'notifications_muted', o.notifications_muted,
+              'is_adjustment', o.is_adjustment,
+              'parent_order_id', o.parent_order_id,
+              'parent_code', p.code,
+              'adjustment_note', o.adjustment_note,
+              'created_at', o.created_at,
+              'payments', COALESCE((
+                SELECT jsonb_agg(jsonb_build_object(
+                  'id', pay.id, 'order_id', pay.order_id, 'amount', pay.amount::text,
+                  'source', pay.source, 'note', pay.note, 'created_at', pay.created_at
+                ) ORDER BY pay.created_at)
+                FROM payments pay WHERE pay.order_id = o.id
+              ), '[]'::jsonb),
+              'messages', COALESCE((
+                SELECT jsonb_agg(jsonb_build_object(
+                  'id', msg.id, 'order_id', msg.order_id, 'channel', msg.channel,
+                  'template', msg.template, 'body', msg.body, 'status', msg.status,
+                  'provider', msg.provider, 'detail', msg.detail, 'created_at', msg.created_at
+                ) ORDER BY msg.created_at)
+                FROM messages msg WHERE msg.order_id = o.id
+              ), '[]'::jsonb)
+            ) AS item
+            FROM orders o
+            JOIN customers c ON c.id = o.customer_id
+            LEFT JOIN orders p ON p.id = o.parent_order_id
+            WHERE o.customer_id = $1 AND o.shop_id = $2
+          ) built
+       ) AS orders`,
     [id, shop.id],
   );
-  const orders = await hydrate(orderRows, today, true);
+  const bundle = rows[0];
+  if (!bundle?.customer) throw new HttpError(404, "Customer not found.");
+  const orderRows = bundle.orders ?? [];
+  const orders = orderRows.map((row) =>
+    mapOrder(row, today, {
+      payments: (row.payments ?? []).map((payment) => ({
+        id: payment.id,
+        amount: money(payment.amount),
+        source: payment.source,
+        note: payment.note,
+        createdAt: new Date(payment.created_at).toISOString(),
+      })),
+      messages: (row.messages ?? []).map((message) => ({
+        id: message.id,
+        channel: message.channel,
+        template: message.template,
+        text: message.body,
+        status: message.status,
+        provider: message.provider,
+        detail: message.detail,
+        createdAt: new Date(message.created_at).toISOString(),
+      })),
+    }),
+  );
+  const fields = bundle.fields ?? [];
+  const measurements = bundle.measurements ?? [];
   return {
     today,
     shop: mapShop(shop),
     fields: fields.map(mapField),
-    customer: mapCustomer(customers[0], orderRows.length, today),
-    measurements: sets.map((set) => mapMeasurement(set, shop.green_days, shop.orange_days, today)),
+    customer: mapCustomer(bundle.customer, orderRows.length, today),
+    measurements: measurements.map((set) => mapMeasurement(set, shop.green_days, shop.orange_days, today)),
     orders,
     suggestedDueDate: defaultDueDate(),
   };

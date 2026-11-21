@@ -85,6 +85,7 @@ CREATE TABLE IF NOT EXISTS orders (
 CREATE INDEX IF NOT EXISTS orders_shop_due_idx ON orders (shop_id, production_status, expected_due_date);
 CREATE INDEX IF NOT EXISTS orders_customer_idx ON orders (customer_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS orders_tracking_idx ON orders (tracking_token);
+CREATE INDEX IF NOT EXISTS orders_piece_label_idx ON orders (shop_id, piece_label) WHERE piece_label IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS payments (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
