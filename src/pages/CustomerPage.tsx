@@ -1,110 +1,116 @@
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
+import useSWR from "swr";
 import { api } from "../api";
 import { MeasurementPanel } from "../MeasurementPanel";
-import { OrderDetail, OrderRow } from "../OrderCard";
-import { formatLong, message } from "../format";
-import type { CustomerProfile } from "../types";
+import { OrderDetail } from "../OrderCard";
+import { duePhrase, formatKd, formatLong, message, PAYMENT_LABEL, piecesLabel } from "../format";
+import type { CustomerProfile, Order } from "../types";
 
 export function CustomerPage() {
   const { id = "" } = useParams();
-  const [params, setParams] = useSearchParams();
+  const [params] = useSearchParams();
   const selected = params.get("order");
-  const [data, setData] = useState<CustomerProfile | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { data, error, isLoading, mutate } = useSWR<CustomerProfile>(id ? `/api/customers/${id}` : null);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    try {
-      const profile = await api.customer(id);
-      setData(profile);
-      setName(profile.customer.name);
-      setPhone(profile.customer.phone);
-      setError(null);
-    } catch (err) {
-      setError(message(err));
-    }
-  }, [id]);
+  const [openId, setOpenId] = useState<string | null>(selected);
+  const [pastExpanded, setPastExpanded] = useState(false);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (!data) return;
+    setName(data.customer.name);
+    setPhone(data.customer.phone);
+  }, [data]);
 
   useEffect(() => {
-    if (!selected || !data) return;
-    document.getElementById(`order-${selected}`)?.scrollIntoView({ block: "start" });
-  }, [selected, data]);
+    if (selected) setOpenId(selected);
+  }, [selected]);
 
-  if (error && !data) {
-    return (
-      <div className="stack">
-        <p className="banner error">{error}</p>
-      </div>
-    );
+  const pastIds = data?.orders.filter((order) => order.productionStatus === "finished").map((order) => order.id).join(",") ?? "";
+  useEffect(() => {
+    if (openId && pastIds.split(",").includes(openId)) setPastExpanded(true);
+  }, [openId, pastIds]);
+
+  async function reload(nextNotice?: string) {
+    if (nextNotice) setNotice(nextNotice);
+    await mutate();
   }
-  if (!data) return <p>Loading…</p>;
+
+  if (error && !data) return <p className="banner error">{message(error)}</p>;
+  if (isLoading && !data) return <ProfileSkeleton />;
+  if (!data) return null;
 
   const open = data.orders.filter((order) => order.productionStatus === "in_progress");
   const past = data.orders.filter((order) => order.productionStatus === "finished");
-  const selectedOrder = data.orders.find((order) => order.id === selected);
-  const onChanged = (nextId?: string, nextNotice?: string) => {
-    if (nextNotice) setNotice(nextNotice);
-    if (nextId) setParams({ order: nextId });
-    void load();
-  };
-
   return (
     <div className="stack">
-      <div>
-        <h1 className="name">{data.customer.name}</h1>
-        <p><a href={`tel:${data.customer.phone.replace(/\s/g, "")}`}>{data.customer.phone}</a></p>
-        {data.customer.isNew && <p>New customer</p>}
-        {!data.customer.isNew && (
-          <p className="muted">Customer since {formatLong(data.customer.createdOn)} · {data.customer.daysAsCustomer.toLocaleString("en-GB")} days</p>
-        )}
-      </div>
-      {notice && <p className="banner">{notice}</p>}
-      {error && <p className="banner error">{error}</p>}
-      <div className="row">
+      <div className="page-head">
+        <div>
+          <h1 className="name">{data.customer.name}</h1>
+          <p style={{ margin: "6px 0 0" }}>
+            <a href={`tel:${data.customer.phone.replace(/\s/g, "")}`}>{data.customer.phone}</a>
+          </p>
+          {data.customer.isNew && <p>New customer</p>}
+          {!data.customer.isNew && (
+            <p className="muted">Customer since {formatLong(data.customer.createdOn)} · {data.customer.daysAsCustomer.toLocaleString("en-GB")} days</p>
+          )}
+        </div>
         <Link className="btn" to={`/customers/${id}/new-order`}>New order</Link>
       </div>
-      {selectedOrder && (
-        <OrderDetail
-          order={selectedOrder}
-          today={data.today}
-          notificationsEnabled={data.shop.notificationsEnabled}
-          onChanged={onChanged}
+      {notice && <p className="banner">{notice}</p>}
+      <div className="profile-grid">
+        <MeasurementPanel
+          customerId={id}
+          fields={data.fields}
+          measurements={data.measurements}
+          onSaved={async () => { await mutate(); }}
         />
-      )}
-      <MeasurementPanel
-        customerId={id}
-        fields={data.fields}
-        measurements={data.measurements}
-        onSaved={load}
-      />
-      <section>
-        <h2>Open orders</h2>
-        {open.length === 0 && <p className="muted">No open orders.</p>}
-        {open.map((order) => (
-          <OrderRow key={order.id} order={order} today={data.today} onChanged={onChanged} />
-        ))}
-      </section>
-      <details>
+        <section className="panel">
+          <h2>Open orders</h2>
+          {open.length === 0 && <p className="empty" style={{ marginTop: 12 }}>No open orders.</p>}
+          {open.map((order) => (
+            <OrderDrop
+              key={order.id}
+              order={order}
+              today={data.today}
+              expanded={openId === order.id}
+              notificationsEnabled={data.shop.notificationsEnabled}
+              onToggle={() => setOpenId((current) => (current === order.id ? null : order.id))}
+              onChanged={(nextId, nextNotice) => {
+                if (nextId) setOpenId(nextId);
+                void reload(nextNotice);
+              }}
+            />
+          ))}
+        </section>
+      </div>
+      <details className="panel" open={pastExpanded} onToggle={(event) => setPastExpanded(event.currentTarget.open)}>
         <summary>Past orders ({past.length})</summary>
         {past.length === 0 && <p className="muted">None yet.</p>}
         {past.map((order) => (
-          <OrderRow key={order.id} order={order} today={data.today} onChanged={onChanged} />
+          <OrderDrop
+            key={order.id}
+            order={order}
+            today={data.today}
+            expanded={openId === order.id}
+            notificationsEnabled={data.shop.notificationsEnabled}
+            onToggle={() => setOpenId((current) => (current === order.id ? null : order.id))}
+            onChanged={(nextId, nextNotice) => {
+              if (nextId) setOpenId(nextId);
+              void reload(nextNotice);
+            }}
+          />
         ))}
       </details>
-      <details>
+      <details className="panel">
         <summary>Edit name or phone</summary>
         <form
           className="grid-2"
           onSubmit={(event: FormEvent) => {
             event.preventDefault();
-            api.updateCustomer(id, { name, phone }).then(() => load()).catch((err) => setError(message(err)));
+            api.updateCustomer(id, { name, phone }).then(() => reload("Details saved.")).catch((err) => setNotice(message(err)));
           }}
         >
           <label className="field">
@@ -118,6 +124,54 @@ export function CustomerPage() {
           <button className="btn secondary" type="submit">Save</button>
         </form>
       </details>
+    </div>
+  );
+}
+
+function OrderDrop({
+  order,
+  today,
+  expanded,
+  notificationsEnabled,
+  onToggle,
+  onChanged,
+}: {
+  order: Order;
+  today: string;
+  expanded: boolean;
+  notificationsEnabled: boolean;
+  onToggle: () => void;
+  onChanged: (nextOrderId?: string, notice?: string) => void;
+}) {
+  return (
+    <div className="order-drop" id={`order-${order.id}`}>
+      <button className="order-drop-head" type="button" aria-expanded={expanded} onClick={onToggle}>
+        <span className={expanded ? "chev open" : "chev"} />
+        <span className="code">{order.code}</span>
+        <span className="grow">
+          {piecesLabel(order.pieceCount)}
+          {order.pieceLabel ? ` · ${order.pieceLabel}` : ""}
+          {" · "}
+          {duePhrase(order.expectedDueDate, today)}
+          {order.isAdjustment ? " · Adjustment" : ""}
+          {Number(order.balance) > 0 ? ` · ${formatKd(order.balance)} due` : ""}
+        </span>
+        <span className={`pill ${order.paymentStatus}`}>{PAYMENT_LABEL[order.paymentStatus]}</span>
+      </button>
+      {expanded && (
+        <div className="order-drop-body">
+          <OrderDetail order={order} today={today} notificationsEnabled={notificationsEnabled} onChanged={onChanged} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProfileSkeleton() {
+  return (
+    <div className="profile-grid">
+      <div className="skeleton"><span className="lg" /><span /><span /></div>
+      <div className="skeleton"><span /><span /><span className="lg" /></div>
     </div>
   );
 }

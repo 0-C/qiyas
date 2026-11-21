@@ -78,6 +78,15 @@ export function mapField(row: FieldRow): MeasurementField {
 }
 
 export async function ensureShop(): Promise<void> {
+  const existing = await raw<{ id: string; n: number }>(
+    `SELECT s.id,
+            (SELECT count(*)::int FROM measurement_fields f WHERE f.shop_id = s.id AND f.is_custom = false) AS n
+     FROM shops s
+     ORDER BY s.created_at
+     LIMIT 1`,
+  );
+  if (existing[0] && existing[0].n >= DEFAULT_FIELDS.length) return;
+
   await withTx(async (client) => {
     await client.query("SELECT pg_advisory_xact_lock(8675309)");
     const existing = await client.query<{ id: string }>("SELECT id FROM shops ORDER BY created_at LIMIT 1");

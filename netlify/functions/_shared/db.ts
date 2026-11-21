@@ -20,10 +20,13 @@ export function getPool(): pg.Pool {
   if (!connectionString) {
     throw new HttpError(500, "DATABASE_URL is not set.");
   }
+  // One pool per isolate. Netlify keeps this module in memory across warm invocations.
   pool = new Pool({
     connectionString,
     ssl: sslFor(connectionString),
-    max: 5,
+    max: 3,
+    idleTimeoutMillis: 10_000,
+    connectionTimeoutMillis: 5_000,
   });
   pool.on("error", (error) => {
     console.error("Postgres pool error", error);
@@ -76,12 +79,20 @@ function schemaStatements(): string[] {
     .filter(Boolean);
 }
 
+const EXTRA_INDEX_SQL = `
+CREATE INDEX IF NOT EXISTS orders_piece_label_idx ON orders (shop_id, piece_label) WHERE piece_label IS NOT NULL
+`;
+
 export async function ensureReady(): Promise<void> {
   if (!ready) {
     ready = (async () => {
-      for (const statement of schemaStatements()) {
-        await raw(statement);
+      const existing = await raw<{ ok: string | null }>("SELECT to_regclass('public.shops')::text AS ok");
+      if (!existing[0]?.ok) {
+        for (const statement of schemaStatements()) {
+          await raw(statement);
+        }
       }
+      await raw(EXTRA_INDEX_SQL);
       const { ensureShop } = await import("./shop");
       await ensureShop();
     })().catch((error) => {
