@@ -9,6 +9,10 @@
   directory = "netlify/functions"
   node_bundler = "esbuild"
 
+# Run the API beside a Frankfurt Render database (AWS eu-central-1).
+[functions.api]
+  region = "fra"
+
 # Local `npm run dev` serves the API itself. `netlify dev` can proxy to Vite.
 [dev]
   command = "npm run dev:web"
