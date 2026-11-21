@@ -59,7 +59,7 @@ export function SettingsPage() {
 
   return (
     <div className="stack">
-      <h2>Settings</h2>
+      <h1>Settings</h1>
       {!shop && !error && <p>Loading settings…</p>}
       {shop && (
         <form className="card stack" onSubmit={save}>
@@ -81,8 +81,8 @@ export function SettingsPage() {
               <input inputMode="decimal" value={fee} onChange={(event) => setFee(event.target.value)} required />
             </label>
           </div>
-          <p className="tiny muted">
-            Measurements under {green} days stay green, under {orange} days turn orange, and older sets turn red.
+          <p className="muted">
+            Under {green} days is recent. Under {orange} days needs a fit check. Older sets should be retaken.
           </p>
           <label className="check">
             <input type="checkbox" checked={notifications} onChange={(event) => setNotifications(event.target.checked)} />
@@ -141,7 +141,7 @@ export function SettingsPage() {
       </section>
       <section className="card stack">
         <h2>Demo data</h2>
-        <p className="muted">Loads one shop with customers, measurement sets, and orders across Overdue, Today, Tomorrow, and Upcoming.</p>
+        <p>Replace customers and orders with the demo shop.</p>
         <button
           className="btn secondary"
           type="button"
