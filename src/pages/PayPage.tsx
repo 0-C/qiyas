@@ -31,14 +31,10 @@ export function PayPage() {
   }
 
   return (
-    <main className="pay">
-      <div className="tape" aria-hidden="true" />
-      <form className="pay-card stack" onSubmit={onSubmit}>
-        <p className="eyebrow">Qiyas demo checkout</p>
+    <main className="public">
+      <form className="public-card stack" onSubmit={onSubmit}>
         <h1>{order ? formatKd(order.balance) : "Pay"}</h1>
-        <p className="muted">
-          {order ? `${order.shopName} · order ${order.code}` : "Loading…"}
-        </p>
+        <p>{order ? `${order.shopName} · ${order.code}` : "Loading…"}</p>
         <p className="banner">Demo only. No card is charged or stored. Confirming marks the order paid.</p>
         {order && Number(order.balance) <= 0 ? (
           <p>This order is already paid. <Link className="back" to={`/t/${token}`}>Back to tracking</Link></p>

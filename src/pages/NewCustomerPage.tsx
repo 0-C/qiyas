@@ -17,7 +17,7 @@ export function NewCustomerPage() {
     setError(null);
     try {
       const result = await api.createCustomer({ name, phone });
-      navigate(`/customers/${result.customer.id}`);
+      navigate(`/customers/${result.customer.id}/new-order`);
     } catch (err) {
       setError(message(err));
       setBusy(false);
@@ -25,27 +25,20 @@ export function NewCustomerPage() {
   }
 
   return (
-    <div className="stack">
-      <Link className="back" to="/">Back to the bench</Link>
-      <h2>New customer</h2>
-      <form className="card stack" onSubmit={onSubmit}>
+    <div className="stack" style={{ maxWidth: 480 }}>
+      <p><Link to="/search">Search</Link></p>
+      <h1>New customer</h1>
+      <form className="stack" onSubmit={onSubmit}>
         <label className="field">
           Name
-          <input value={name} onChange={(event) => setName(event.target.value)} required maxLength={80} />
+          <input value={name} onChange={(event) => setName(event.target.value)} required maxLength={80} autoFocus />
         </label>
         <label className="field">
           Phone
-          <input
-            value={phone}
-            onChange={(event) => setPhone(event.target.value)}
-            required
-            inputMode="tel"
-            placeholder="5123 4678"
-          />
+          <input value={phone} onChange={(event) => setPhone(event.target.value)} required inputMode="tel" placeholder="5123 4678" />
         </label>
-        <p className="muted tiny">Kuwait mobile numbers can be entered as 8 digits. The country code is added for you.</p>
         {error && <p className="banner error">{error}</p>}
-        <button className="btn" disabled={busy} type="submit">{busy ? "Saving…" : "Create customer"}</button>
+        <button className="btn" disabled={busy} type="submit">{busy ? "Saving…" : "Continue"}</button>
       </form>
     </div>
   );

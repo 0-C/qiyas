@@ -22,8 +22,8 @@ export function TrackingPage() {
 
   if (error) {
     return (
-      <main className="track">
-        <div className="track-shell">
+      <main className="public">
+        <div className="public-card">
           <p className="banner error">{error}</p>
         </div>
       </main>
@@ -31,8 +31,8 @@ export function TrackingPage() {
   }
   if (!order) {
     return (
-      <main className="track">
-        <div className="track-shell"><p>Loading your order…</p></div>
+      <main className="public">
+        <div className="public-card"><p>Loading…</p></div>
       </main>
     );
   }
@@ -41,19 +41,14 @@ export function TrackingPage() {
   const canDeliver = order.handoverStatus === "awaiting_collection" || order.handoverStatus === "delivery_requested";
 
   return (
-    <main className="track">
-      <div className="tape" aria-hidden="true" />
-      <div className="track-shell">
-        <p className="eyebrow">Qiyas</p>
-        <div className="track-hero">
-          <h1>{order.shopName}</h1>
-          <p className="muted">Hello {order.customerFirstName}. This page is only for order {order.code}.</p>
-        </div>
-        <section className="track-card stack">
+    <main className="public">
+      <div className="public-card stack">
+        <h1>{order.shopName}</h1>
+        <section className="stack">
           {note && <p className="banner">{note}</p>}
           <div className="spread">
             <strong className="code">{order.code}</strong>
-            {order.isAdjustment && <span className="pill adjustment">Adjustment</span>}
+            {order.isAdjustment && <span className="tag"> · Adjustment</span>}
           </div>
           <p>{piecesLabel(order.pieceCount)} · {order.pieceLabels.join(", ")}</p>
           <div className="tracks">
@@ -72,11 +67,10 @@ export function TrackingPage() {
           </div>
           <p>Expected {formatLong(order.expectedDueDate)}</p>
           {order.originalDueDate !== order.expectedDueDate && (
-            <p className="tiny muted">Originally promised {formatLong(order.originalDueDate)}</p>
+            <p className="muted">Originally promised {formatLong(order.originalDueDate)}</p>
           )}
-          <p className="tiny muted">Balance</p>
           <p className="balance">{formatKd(order.balance)}</p>
-          <p className="tiny">Total {formatKd(order.totalAmount)} · Paid {formatKd(order.amountPaid)}</p>
+          <p>Total {formatKd(order.totalAmount)} · Paid {formatKd(order.amountPaid)}</p>
           <div className="row">
             {owed && <Link className="btn" to={`/t/${token}/pay`}>Pay now</Link>}
             {canDeliver && order.handoverStatus !== "delivery_requested" && (
@@ -95,9 +89,9 @@ export function TrackingPage() {
                 Request delivery · {formatKd(order.deliveryFee)}
               </button>
             )}
-            {order.handoverStatus === "delivery_requested" && <span className="pill neutral">Delivery requested</span>}
+            {order.handoverStatus === "delivery_requested" && <span>Delivery requested</span>}
           </div>
-          {owed && <p className="tiny muted">If you still owe a balance, pay first. You can ignore delivery if you are picking the dishdasha up at the shop.</p>}
+          {owed && <p className="muted">Pay the balance before delivery, or ignore delivery if you are collecting from the shop.</p>}
         </section>
       </div>
     </main>
