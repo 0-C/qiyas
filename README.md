@@ -68,6 +68,8 @@ Money is stored as KD with 3 decimal places (`numeric(12,3)`).
 
 `npm run build` typechecks the React app and the functions, then builds the static site. Functions are TypeScript files in `netlify/functions` using the Web API handler (`export default` + `export const config`). Client routes fall back to `index.html`. `/api/*` is handled by `netlify/functions/api.ts`.
 
+If the Netlify plan allows a custom function region, set it to Frankfurt (`fra`) under Cloud compute → Functions → Region so the API sits next to a Render database in eu-central-1. Pinning that region in `netlify.toml` failed the deploy preview on this site, so it is left to the dashboard.
+
 4. After the first deploy, open Settings and load demo data, or `POST /api/seed`.
 
 There is no login. The demo is a single shop. Offline mode and cross-shop measurement sharing are intentionally left out.
